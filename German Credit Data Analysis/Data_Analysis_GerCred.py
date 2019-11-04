@@ -154,7 +154,7 @@ plt.plot([0, 1], [0, 1], 'k--')
 plt.plot(fpr, tpr)
 plt.xlabel("False Positive Rate")
 plt.ylabel("True Positive Rate")
-plt.title("ROC Curve")
+plt.title("LR Base ROC Curve")
 plt.show()
 
 from sklearn.metrics import roc_auc_score
@@ -229,7 +229,7 @@ plt.plot([0, 1], [0, 1], 'k--')
 plt.plot(fpr, tpr)
 plt.xlabel("False Positive Rate")
 plt.ylabel("True Positive Rate")
-plt.title("ROC Curve")
+plt.title("ROC Curve Credit_Amount Var removed")
 plt.show()
 
 temp2 = ({"Model": "LR model post removing Credit_Amount variable",
@@ -362,16 +362,399 @@ pred_df4.head()
 #Check Accuracy of our model
 print(round(accuracy_score(y_test, pred_df4["Predicted_Class"]), 3) * 100)#75.7% 
 
+#Check ROC Score
+print(roc_auc_score(y_test, pred_df4["Predicted_Class"]))
+
+#Confusion Matrix for this model
+confusion_mat = confusion_matrix(y_test, pred_df4["Predicted_Class"])
+confusion_mat #40, 187 correctly predicted and 60 and 13 Incorrectly predicted
+
+#Classification Report
+print(classification_report(y_test, pred_df4["Predicted_Class"]))
+
+#Predicting
+y_pred_prob = model4.predict(X_test_VIF)
+
+#ROC Curve Visualisation
+fpr, tpr, thresholds = roc_curve(y_test, y_pred_prob)
+
+#Plotting the curve
+plt.plot([0, 1], [0, 1], 'k--')
+plt.plot(fpr, tpr)
+plt.xlabel("False Positive Rate")
+plt.ylabel("True Positive Rate")
+plt.title("ROC Curve for Variables with VIF < 10")
+plt.show()
+
+#Adding the Statistics to a dataframe
+temp4 = pd.Series({"Model": "LR model after Treating Multicollinearity",
+          "R-Squared": model4.prsquared,
+          "ROC Score": roc_auc_score(y_test, pred_df4["Predicted_Class"]),
+          "Precision Score": precision_score(y_test, pred_df4["Predicted_Class"]),
+          "Recall Score": recall_score(y_test, pred_df4["Predicted_Class"]),
+          "Accuracy Score": accuracy_score(y_test, pred_df4["Predicted_Class"]),
+          "Kappa Score": cohen_kappa_score(y_test, pred_df4["Predicted_Class"])})
+
+model4_report = model_report.append(temp4, ignore_index=True)
+model4_report
 
 
+#Building Model after removing insignificant variables
+X = X_train_VIF
+Y = y_train
+def feature_selection(X, Y, 
+                       initial_list=[], 
+                       threshold_in=0.05, 
+                       threshold_out = 0.05, 
+                       verbose=True):
+    """ Perform a forward-backward feature selection 
+    based on p-value from statsmodels.api.OLS
+    Arguments:
+        X - pandas.DataFrame with candidate features
+        y - list-like with the target
+        initial_list - list of features to start with (column names of X)
+        threshold_in - include a feature if its p-value < threshold_in
+        threshold_out - exclude a feature if its p-value > threshold_out
+        verbose - whether to print the sequence of inclusions and exclusions
+    Returns: list of selected features 
+    Always set threshold_in < threshold_out to avoid infinite looping.
+    See https://en.wikipedia.org/wiki/Stepwise_regression for the details
+    """
+    included = list(initial_list)
+    while True:
+        changed=False
+        # forward step
+        excluded = list(set(X.columns)-set(included))
+        new_pval = pd.Series(index=excluded)
+        for new_column in excluded:
+            model = sm.OLS(Y, sm.add_constant((X[included+[new_column]]))).fit()
+            new_pval[new_column] = model.pvalues[new_column]
+        best_pval = new_pval.min()
+        if best_pval < threshold_in:
+            best_feature = new_pval.argmin()
+            included.append(best_feature)
+            changed=True
+            if verbose:
+                print('Add  {:30} with p-value {:.6}'.format(best_feature, best_pval))
+
+        # backward step
+        model = sm.OLS(Y, sm.add_constant(pd.DataFrame(X[included]))).fit()
+        # use all coefs except intercept
+        pvalues = model.pvalues.iloc[1:]
+        worst_pval = pvalues.max() # null if pvalues is empty
+        if worst_pval > threshold_out:
+            changed=True
+            worst_feature = pvalues.argmax()
+            included.remove(worst_feature)
+            if verbose:
+                print('Drop {:30} with p-value {:.6}'.format(worst_feature, worst_pval))
+        if not changed:
+            break
+    return included
+
+result = feature_selection(X, Y)
+
+print('resulting features:')
+print(result)
+
+#Creating a New train and test dataframe with columns given in the result var.
+train_df = X_train.filter(result)
+test_df = X_test.filter(result)
+
+train_df.shape
+test_df.shape
+
+#Building the Model
+logit5 = sm.Logit(y_train, train_df)
+model5 = logit5.fit()
+
+#Get the summary
+print(model5.summary())
+
+#Predicting and Classifiying the results into 0 and 1
+y_pred5 = model5.predict(test_df)
+pred_df5 = pd.DataFrame(y_pred5)
+pred_df5.head()
+
+pred_df5["Predicted_Class"] = np.where(pred_df5[0] >= 0.5, 1, 0)
+pred_df5.head()
+
+#Check Accuracy of our model
+print(round(accuracy_score(y_test, pred_df5["Predicted_Class"]), 3) * 100)
+#76.7% accurate
+
+#Check ROC Score
+print(round(roc_auc_score(y_test, pred_df5["Predicted_Class"]), 3) * 100)
+#Score of 68
+
+#Confusion Matrix for this model
+confusion_mat = confusion_matrix(y_test, pred_df5["Predicted_Class"])
+confusion_mat #42, 188 correctly predicted and 58 and 12 Incorrectly predicted
+
+#Classification Report
+print(classification_report(y_test, pred_df5["Predicted_Class"]))
+
+#Predicting
+y_pred_prob = model5.predict(test_df)
+
+#ROC Curve Visualisation
+fpr, tpr, thresholds = roc_curve(y_test, y_pred_prob)
+
+#Plotting the curve
+plt.plot([0, 1], [0, 1], 'k--')
+plt.plot(fpr, tpr)
+plt.xlabel("False Positive Rate")
+plt.ylabel("True Positive Rate")
+plt.title("ROC Curve post removing Insignificant Vars")
+plt.show()
 
 
+#Add model statistics to a model report
+temp5 = pd.Series({"Model": "LR post removing Insignificant Vars",
+          "R-Squared": model5.prsquared,
+          "ROC Score": roc_auc_score(y_test, pred_df5["Predicted_Class"]),
+          "Precision Score": precision_score(y_test, pred_df5["Predicted_Class"]),
+          "Recall Score": recall_score(y_test, pred_df5["Predicted_Class"]),
+          "Accuracy Score": accuracy_score(y_test, pred_df5["Predicted_Class"]),
+          "Kappa Score": cohen_kappa_score(y_test, pred_df5["Predicted_Class"])})
+
+model5_report = model_report.append(temp5, ignore_index=True)
+model5_report
+
+# ---- Compile all LR Models ----
+LR_model_compile = pd.DataFrame(columns = cols)
+LR_model_compile = LR_model_compile.append([model1_report, model2_report,
+                                            model3_report, model4_report, 
+                                            model5_report],ignore_index=True)
+
+LR_model_compile
+'''
+We can see from the table that the best model turns out to be the one
+with the insignificant variables removed giving 76% accuracy and 
+an ROC Score of 68.
+'''
+
+# ---- Building a Model with a Decision Tree ----
+#Gini Impurity is the probability of a random sample being classified correctly
+#if we randomly pick a label according to the branch distribution. 
+
+#We will use the gini impurity criterion and splitter as best. 
+from sklearn.tree import DecisionTreeClassifier
+
+#Creating the DTC object
+DTree1 = DecisionTreeClassifier(criterion="gini", splitter="best",
+                                max_depth=5, min_samples_split=2,
+                                min_samples_leaf=1)
+
+#Fitting the model
+DTree1.fit(X_train, y_train)
+
+#Predicting the model
+y_pred_DTree1 = DTree1.predict(X_test)
+
+from graphviz import Source
+from IPython.display import SVG
+from sklearn import tree
+import os
+os.environ["PATH"] += os.pathsep + 'C:/Program Files (x86)/Graphviz2.38/bin/'
+
+graph = Source(tree.export_graphviz(DTree1, out_file=None))
+SVG(graph.pipe(format='svg'))
+
+cols_DT = ["Model", "ROC Score", "Precision Score", "Recall Score",
+        "Accuracy Score", "Kappa Score"]
+
+model_reports = pd.DataFrame(columns = cols_DT)
+
+temp1_DT = pd.Series({"Model": "Decision Tree with Gini and Best Split",
+          "ROC Score": roc_auc_score(y_test, y_pred_DTree1),
+          "Precision Score": precision_score(y_test, y_pred_DTree1),
+          "Recall Score": recall_score(y_test, y_pred_DTree1),
+          "Accuracy Score": accuracy_score(y_test, y_pred_DTree1),
+          "Kappa Score": cohen_kappa_score(y_test, y_pred_DTree1)})
+
+model_DT_report = model_reports.append(temp1_DT, ignore_index=True)
+model_DT_report
+
+#Building a DT with gini solver and random splitter
+DTree2 = DecisionTreeClassifier(criterion="gini", splitter="random",
+                                max_depth=10, min_samples_split=2,
+                                min_samples_leaf=1)
+#Fit the model
+DTree2.fit(X_train, y_train)
+
+#Predict
+y_pred_DTree2 = DTree2.predict(X_test)
+
+temp2_DT = pd.Series({"Model": "Decision Tree with Gini and Random Split",
+          "ROC Score": roc_auc_score(y_test, y_pred_DTree2),
+          "Precision Score": precision_score(y_test, y_pred_DTree2),
+          "Recall Score": recall_score(y_test, y_pred_DTree2),
+          "Accuracy Score": accuracy_score(y_test, y_pred_DTree2),
+          "Kappa Score": cohen_kappa_score(y_test, y_pred_DTree2)})
+
+model2_DT_report = model_reports.append(temp2_DT, ignore_index=True)
+model2_DT_report
+
+#Building DT with entropy solver and best splitter
+DTree3 = DecisionTreeClassifier(criterion="entropy", splitter = "best",
+                                max_depth=10, min_samples_split=2,
+                                min_samples_leaf=1, 
+                                min_weight_fraction_leaf=0.0,
+                                min_impurity_split= 1e-07)
+
+#Fit the model
+DTree3.fit(X_train, y_train)
+
+#Predict
+y_pred_DTree3 = DTree3.predict(X_test)
+
+temp3_DT = pd.Series({"Model": "Decision Tree with Entropy and Best Split",
+          "ROC Score": roc_auc_score(y_test, y_pred_DTree3),
+          "Precision Score": precision_score(y_test, y_pred_DTree3),
+          "Recall Score": recall_score(y_test, y_pred_DTree3),
+          "Accuracy Score": accuracy_score(y_test, y_pred_DTree3),
+          "Kappa Score": cohen_kappa_score(y_test, y_pred_DTree3)})
+
+model3_DT_report = model_reports.append(temp3_DT, ignore_index=True)
+model3_DT_report
+
+#Building DT with entropy solver and random splitter
+DTree4 = DecisionTreeClassifier(criterion="entropy", splitter = "random",
+                                max_depth=5, min_samples_split=4,
+                                min_samples_leaf=2)
+
+#Fit the model
+DTree4.fit(X_train, y_train)
+
+#Predict
+y_pred_DTree4 = DTree4.predict(X_test)
+
+temp4_DT = pd.Series({"Model": "Decision Tree with Entropy and Random Split",
+          "ROC Score": roc_auc_score(y_test, y_pred_DTree4),
+          "Precision Score": precision_score(y_test, y_pred_DTree4),
+          "Recall Score": recall_score(y_test, y_pred_DTree4),
+          "Accuracy Score": accuracy_score(y_test, y_pred_DTree4),
+          "Kappa Score": cohen_kappa_score(y_test, y_pred_DTree4)})
+
+model4_DT_report = model_reports.append(temp4_DT, ignore_index=True)
+model4_DT_report
+
+# ---- Compile all Decision Tree models ----
+model_DT_compile = pd.DataFrame(columns = cols_DT)
+model_DT_compile = model_DT_compile.append([model_DT_report,
+                                            model2_DT_report,
+                                            model3_DT_report,
+                                            model4_DT_report],ignore_index=True)
+
+model_DT_compile    
+    
+'''
+Turns out the best model that can be chosen would be the last one
+with Entropy as solver and a random splitter. However our first model
+with gini solver and best split had equivalent results only marginally
+worse.
+
+Let's cross-validate using KFold Cross validation to ensure we know the
+best parameters like max_depth as the tree could have been overfit.
+
+'''
+
+#---- Cross Validation ----
+#Lets start with a potentially overfit tree
+DTree_dummy = DecisionTreeClassifier(criterion="entropy", splitter="random",
+                                     max_depth=4, min_samples_split=20,
+                                     random_state=999)
 
 
+#Fit the Model
+DTree_dummy.fit(X_train, y_train)
 
+#Predict
+y_pred_dummy = DTree_dummy.predict(X_test)
 
+#Cross-Validation 
+from sklearn.model_selection import KFold
+cross_validation = KFold(n_splits=10, shuffle=True, random_state=1)
 
+from sklearn.model_selection import cross_val_score
+score = np.mean(cross_val_score(DTree_dummy, X_train, y_train,
+                                scoring="accuracy", cv=cross_validation))
+score
 
+#The Score is 70, lets run a loop to ensure the best depth
+depth = []
+for i in range(3, 20):
+    clf = DecisionTreeClassifier(criterion="entropy", splitter="random",
+                                     max_depth=i, min_samples_split=20,
+                                     random_state=999)
+    #10 Fold Cross Validation
+    scores = cross_val_score(estimator=clf, X=X_train, y=y_train, 
+                             cv=cross_validation, n_jobs=4, scoring='accuracy')
+    depth.append((i, scores.mean()))
+
+print(depth)
+#Re-looping to check if min_samples_split can increase our score
+depth1 = []
+for i in range(3, 20):
+    clf = DecisionTreeClassifier(criterion="entropy", splitter="random",
+                                     max_depth=i, min_samples_split=30,
+                                     random_state=999)
+    #10 Fold Cross Validation
+    scores = cross_val_score(estimator=clf, X=X_train, y=y_train, 
+                             cv=cross_validation, scoring='accuracy')
+    depth1.append((i, scores.mean()))
+
+print(depth1)
+#Best score of 71 at max_depth of 5. 
+
+#Result
+'''
+After running the loop we can see that the best score is achieved
+at max_depth of 4 or 5, so we will keep our max_depth at 5. '''
+
+#Final Model after Cross Validation
+
+DTree5 = DecisionTreeClassifier(criterion="entropy", splitter = "random",
+                                max_depth=5, min_samples_split=30)
+
+#Fit the model
+DTree5.fit(X_train, y_train)
+
+#Predict
+y_pred_DTree5 = DTree5.predict(X_test)
+
+temp5_DT = pd.Series({"Model": "Decision Tree after Cross-Validation",
+          "ROC Score": roc_auc_score(y_test, y_pred_DTree5),
+          "Precision Score": precision_score(y_test, y_pred_DTree5),
+          "Recall Score": recall_score(y_test, y_pred_DTree5),
+          "Accuracy Score": accuracy_score(y_test, y_pred_DTree5),
+          "Kappa Score": cohen_kappa_score(y_test, y_pred_DTree5)})
+
+model5_DT_report = model_reports.append(temp5_DT, ignore_index=True)
+model5_DT_report
+
+# ---- Compile all Decision Tree models ----
+model_DT_compile = model_DT_compile.append([model5_DT_report],
+                                           ignore_index=True)
+#---- Conclusion ----
+'''
+After comparing all Decision Tree we built, the best after conducting
+cross validation is the final model where we got the max_depth to be at 5.
+The accuracy of the model is at 74.3% with ROC Score of 70.75.
+
+'''
+
+# ---- Final check on the Importance of the Features ----
+(pd.Series(DTree5.feature_importances_, index= X_train.columns)
+.nlargest(4)
+.plot(kind='barh', title="Feature Importance of the Best Decision Tree Model"))
+
+'''
+The higher the value, the greater the importance of the feature.
+In our case the most important feature is the Status_of_existing_account,
+followed by Guarantors/Debtors, Value_of_Savings_account&bonds and last but 
+not least Payment_Status_of_Previous_Credit. '''
 
 
 
